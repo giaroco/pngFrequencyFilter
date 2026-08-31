@@ -5,19 +5,28 @@ import (
 	"math"
 )
 
-// LowPass zeroes out every bin in an already FFTShift-ed H x W
+// BandPass zeroes out every bin in an already FFTShift-ed H x W
 // frequency-domain grid whose normalized radial distance from the center
-// (DC) exceeds cutoff. The radius for bin (i,j) is normalized per axis
-// against that axis' Nyquist frequency, so it is 1.0 at the edge midpoints
-// and up to sqrt(2) at the corners:
+// (DC) falls outside [obstruction, cutoff]. The radius for bin (i,j) is
+// normalized per axis against that axis' Nyquist frequency, so it is 1.0
+// at the edge midpoints and up to sqrt(2) at the corners:
 //
 //	u := (i - H/2) / (H/2)
 //	v := (j - W/2) / (W/2)
 //	r := sqrt(u^2 + v^2)
 //
-// cutoff must be in [0,1]. A cutoff of 0 keeps only the DC bin; a cutoff
-// of 1 keeps everything except the extreme corner diagonal frequencies.
-func LowPass(freq [][]complex128, cutoff float64) ([][]complex128, error) {
+// cutoff is the existing low-pass radius: bins with r > cutoff are
+// zeroed. obstruction simulates a circular obstruction blocking the
+// low frequencies at the center of the u/v plane: bins with r <
+// obstruction (including DC itself when obstruction > 0) are zeroed.
+//
+// Both obstruction and cutoff must be in [0,1]. obstruction=0 disables
+// the obstruction (the DC bin and its immediate neighborhood are kept),
+// giving the original low-pass-only behavior.
+func BandPass(freq [][]complex128, obstruction, cutoff float64) ([][]complex128, error) {
+	if obstruction < 0 || obstruction > 1 {
+		return nil, fmt.Errorf("freqfilter: obstruction must be in [0,1], got %v", obstruction)
+	}
 	if cutoff < 0 || cutoff > 1 {
 		return nil, fmt.Errorf("freqfilter: cutoff must be in [0,1], got %v", cutoff)
 	}
@@ -36,7 +45,7 @@ func LowPass(freq [][]complex128, cutoff float64) ([][]complex128, error) {
 		for j := range freq[i] {
 			v := float64(j-centerCol) / halfW
 			r := math.Sqrt(u*u + v*v)
-			if r <= cutoff {
+			if r >= obstruction && r <= cutoff {
 				out[i][j] = freq[i][j]
 			}
 		}
@@ -44,17 +53,18 @@ func LowPass(freq [][]complex128, cutoff float64) ([][]complex128, error) {
 	return out, nil
 }
 
-// ApplyLowPass runs the full FFT -> shift -> low-pass -> unshift -> IFFT
+// ApplyBandPass runs the full FFT -> shift -> band-pass -> unshift -> IFFT
 // pipeline on a single real-valued H x W image channel, returning the
-// filtered channel as a real H x W matrix.
-func ApplyLowPass(channel [][]float64, cutoff float64) ([][]float64, error) {
+// filtered channel as a real H x W matrix. See BandPass for the meaning
+// of obstruction and cutoff.
+func ApplyBandPass(channel [][]float64, obstruction, cutoff float64) ([][]float64, error) {
 	h := len(channel)
 	w := len(channel[0])
 
 	freq := FFT2D(channel)
 	shifted := FFTShift(freq)
 
-	masked, err := LowPass(shifted, cutoff)
+	masked, err := BandPass(shifted, obstruction, cutoff)
 	if err != nil {
 		return nil, err
 	}
