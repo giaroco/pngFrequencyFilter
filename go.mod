@@ -1,5 +1,5 @@
 module github.com/giaroco/pngFrequencyFilter
 
-go 1.26.5
+go 1.27.1
 
-require gonum.org/v1/gonum v0.17.0 // indirect
+require gonum.org/v1/gonum v0.17.0
